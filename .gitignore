@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Models (download separately)
+models/*.pt
+models/*.weights
+
+# Railway
+.railway/
+
+# Node (if using Wrangler CLI)
+node_modules/
