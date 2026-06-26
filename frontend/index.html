@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Vision Coach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ══════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">♟</span>
+        <span class="logo-text">Chess Vision Coach</span>
+      </div>
+      <div class="status-pill" id="engineStatus">
+        <span class="status-dot"></span>
+        <span class="status-label">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════
+       MAIN LAYOUT
+  ══════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- LEFT COLUMN: Camera + Board Preview -->
+    <section class="col col-camera">
+
+      <!-- Camera Preview -->
+      <div class="card camera-card">
+        <div class="card-label">Camera Feed</div>
+        <div class="camera-wrapper">
+          <video id="cameraFeed" autoplay playsinline muted></video>
+          <canvas id="captureCanvas" hidden></canvas>
+          <div class="camera-overlay" id="cameraOverlay">
+            <span class="overlay-icon">📷</span>
+            <span>Tap "Start Analysis" to begin</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detected Board -->
+      <div class="card board-card" id="boardCard" style="display:none">
+        <div class="card-label">Detected Board
+          <span class="conf-badge" id="confBadge">–</span>
+        </div>
+        <div class="board-wrapper">
+          <img id="boardImg" src="" alt="Detected chess board" />
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Controls + Move Output -->
+    <section class="col col-controls">
+
+      <!-- Config Card -->
+      <div class="card config-card">
+        <div class="card-label">Setup</div>
+
+        <!-- Player Colour -->
+        <div class="control-group">
+          <label class="ctrl-label">I'm playing as</label>
+          <div class="toggle-group" id="colorToggle">
+            <button class="toggle-btn active" data-val="w">
+              <span class="piece-icon">♔</span> White
+            </button>
+            <button class="toggle-btn" data-val="b">
+              <span class="piece-icon">♚</span> Black
+            </button>
+          </div>
+        </div>
+
+        <!-- Win / Loss Mode -->
+        <div class="control-group">
+          <label class="ctrl-label">Play Mode</label>
+          <div class="toggle-group" id="modeToggle">
+            <button class="toggle-btn active" data-val="win">
+              🏆 Win Mode
+            </button>
+            <button class="toggle-btn" data-val="loss">
+              🎭 Loss Mode
+            </button>
+          </div>
+        </div>
+
+        <!-- Depth Selector -->
+        <div class="control-group">
+          <label class="ctrl-label">
+            Engine Depth
+            <span class="elo-hint" id="eloHint">≈ 1900 Elo*</span>
+          </label>
+          <div class="depth-row">
+            <input type="range" id="depthSlider" min="4" max="16" value="10" step="1" />
+            <span class="depth-val" id="depthVal">10</span>
+          </div>
+          <p class="elo-note">* Approximate Elo estimates — not official ratings</p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="btn-row">
+          <button class="btn btn-start" id="btnStart">▶ Start Analysis</button>
+          <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Move Output Card -->
+      <div class="card move-card">
+        <div class="card-label">Recommended Move</div>
+
+        <!-- Big move display -->
+        <div class="move-display" id="moveDisplay">
+          <div class="move-waiting" id="moveWaiting">
+            <span class="wait-icon">⏳</span>
+            <span>Waiting for analysis…</span>
+          </div>
+          <div class="move-result" id="moveResult" style="display:none">
+            <div class="move-text" id="moveText">Move Pawn to e4</div>
+            <div class="move-san" id="moveSan">e4</div>
+          </div>
+        </div>
+
+        <!-- Status bar -->
+        <div class="status-bar" id="statusBar">
+          <span id="statusMsg">Press Start to begin.</span>
+        </div>
+      </div>
+
+      <!-- Mode Info Card -->
+      <div class="card info-card" id="modeInfoCard">
+        <div class="mode-info" id="modeInfo">
+          <span class="mode-icon">🏆</span>
+          <div>
+            <strong>Win Mode</strong>
+            <p>Strong, practical moves. Human-like, not robotic.</p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>Chess Vision Coach • Camera frames processed locally, only compressed snapshots sent to engine</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
