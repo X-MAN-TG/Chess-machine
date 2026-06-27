@@ -22,4 +22,4 @@ COPY . .
 ENV STOCKFISH_PATH=/usr/games/stockfish
 
 # Railway injects $PORT at runtime; default 8000 for local dev
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
