@@ -1,15 +1,3 @@
-"""
-BoardDetector — OpenCV-based chess board detection.
-
-The critical fix in this version:
-  - _matrix_to_fen() now produces a VALID FEN with kings, not all-pawns.
-  - Uses piece position heuristics to assign piece types (kings go to
-    their home squares, queens/rooks by position, etc.).
-  - Falls back to the standard starting FEN if confidence is too low,
-    rather than sending garbage to Stockfish.
-  - All outputs are validated with python-chess before being returned.
-"""
-
 import cv2
 import numpy as np
 import logging
@@ -20,10 +8,7 @@ logger = logging.getLogger(__name__)
 
 TARGET_SIZE = 480
 MIN_BOARD_AREA_FRACTION = 0.10
-
-# Standard starting position — used as fallback when detection is uncertain
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
 
 class BoardDetector:
     def __init__(self):
@@ -32,8 +17,6 @@ class BoardDetector:
     def load(self):
         self._ready = True
         logger.info("BoardDetector ready (OpenCV).")
-
-    # ── Public API ────────────────────────────────────────────────────────────
 
     def detect(self, image_bytes: bytes) -> dict:
         """
@@ -66,13 +49,10 @@ class BoardDetector:
                 "Board confidence too low. Move camera closer or improve lighting.",
                 confidence=overall,
             )
-
-        # Build and VALIDATE the FEN — never send invalid FEN to Stockfish
         fen, turn = self._matrix_to_fen(matrix, overall)
         valid, fen = self._ensure_valid_fen(fen, turn)
 
         if not valid:
-            # Detection produced an unrecoverable FEN — tell user to reposition
             return _err(
                 "Could not read board clearly. Ensure all pieces are visible.",
                 confidence=overall,
@@ -88,29 +68,22 @@ class BoardDetector:
         }
 
     def draw_move(self, board_b64: str, uci_move: str) -> str:
-        """Overlay a green arrow on the board image for the recommended move."""
         try:
             img = _b64_to_cv2(board_b64)
             h, w = img.shape[:2]
             sq = w // 8
             fx, fy = _sq_to_pixel(uci_move[:2], sq)
             tx, ty = _sq_to_pixel(uci_move[2:4], sq)
-
-            # Highlight destination square
             col = (ord(uci_move[2]) - ord("a")) * sq
             row = (8 - int(uci_move[3])) * sq
             overlay = img.copy()
             cv2.rectangle(overlay, (col, row), (col + sq, row + sq), (0, 210, 90), -1)
             cv2.addWeighted(overlay, 0.30, img, 0.70, 0, img)
-
-            # Draw arrow
             cv2.arrowedLine(img, (fx, fy), (tx, ty), (0, 210, 90), thickness=4, tipLength=0.35)
             return _cv2_to_b64(img)
         except Exception as e:
             logger.warning(f"draw_move failed: {e}")
             return board_b64
-
-    # ── Private: image processing ─────────────────────────────────────────────
 
     def _decode(self, image_bytes: bytes) -> np.ndarray:
         arr = np.frombuffer(image_bytes, np.uint8)
@@ -153,7 +126,7 @@ class BoardDetector:
         if best is None:
             h, w = img.shape[:2]
             corners = np.array([[0,0],[w,0],[w,h],[0,h]], dtype="float32")
-            return corners, 0.45   # low confidence fallback
+            return corners, 0.45
 
         corners = best.reshape(4, 2).astype("float32")
         conf = min(1.0, best_area / (img_area * 0.70))
@@ -167,10 +140,6 @@ class BoardDetector:
         return cv2.warpPerspective(img, M, (size, size))
 
     def _classify_squares(self, board: np.ndarray):
-        """
-        Classify each square as 'W' (white piece), 'B' (black piece), or 'empty'.
-        Uses brightness/saturation of the centre region vs expected square colour.
-        """
         sq = board.shape[0] // 8
         hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
         matrix, confs = [], []
@@ -180,7 +149,7 @@ class BoardDetector:
             for col in range(8):
                 x0, y0 = col * sq, row * sq
                 x1, y1 = x0 + sq, y0 + sq
-                m = sq // 5  # margin — avoid border bleed
+                m = sq // 5
                 cell = hsv[y0+m:y1-m, x0+m:x1-m]
 
                 if cell.size == 0:
@@ -193,7 +162,6 @@ class BoardDetector:
                 is_light = (row + col) % 2 == 0
 
                 if is_light:
-                    # Light square: empty ~200-255V, low saturation
                     if mean_v < 110:
                         rank.append("B"); confs.append(min(1.0, (130-mean_v)/130))
                     elif mean_v > 175 and mean_s < 35:
@@ -201,7 +169,6 @@ class BoardDetector:
                     else:
                         rank.append("W"); confs.append(0.60)
                 else:
-                    # Dark square: empty ~70-140V
                     if mean_v > 195 and mean_s < 45:
                         rank.append("W"); confs.append(min(1.0, (mean_v-170)/85))
                     elif mean_v < 85:
@@ -214,20 +181,6 @@ class BoardDetector:
         return matrix, round(float(np.mean(confs)), 3)
 
     def _matrix_to_fen(self, matrix: list, confidence: float) -> tuple[str, str]:
-        """
-        Convert the 8x8 colour matrix to a valid FEN string.
-
-        Since we can only detect colour (not piece type) from brightness alone,
-        we assign piece types using positional heuristics:
-          - Row 0 (rank 8) black pieces → back rank: r,n,b,q,k,b,n,r
-          - Row 1 (rank 7) black pieces → pawns
-          - Row 6 (rank 2) white pieces → pawns
-          - Row 7 (rank 1) white pieces → back rank: R,N,B,Q,K,B,N,R
-          - Any piece on rows 2-5 → pawn (mid-game simplification)
-
-        This gives Stockfish a legal FEN it can work with.
-        """
-        # Expected back-rank piece types (standard starting order)
         WHITE_BACK = list("RNBQKBNR")
         BLACK_BACK = list("rnbqkbnr")
 
@@ -251,7 +204,7 @@ class BoardDetector:
                         rank_str += BLACK_BACK[col_idx]
                     else:
                         rank_str += "p"
-                else:  # "W"
+                else:
                     if row_idx == 7:
                         rank_str += WHITE_BACK[col_idx]
                     else:
@@ -264,45 +217,27 @@ class BoardDetector:
             ranks.append(rank_str)
 
         board_str = "/".join(ranks)
-
-        # Infer whose turn: if fewer white pieces on board, white likely moved last → black's turn
-        # Default to white to move (start of game / most common case)
         turn = "b" if white_count < black_count else "w"
-
-        # Build minimal FEN — no castling rights (safest for mid-game positions)
         fen = f"{board_str} {turn} - - 0 1"
         return fen, turn
 
     def _ensure_valid_fen(self, fen: str, turn: str) -> tuple[bool, str]:
-        """
-        Validate FEN with python-chess. If invalid, attempt to fix common issues.
-        Returns (success, working_fen).
-        """
-        # First try as-is
         try:
             board = chess.Board(fen)
-            # Must have kings
             if (len(board.pieces(chess.KING, chess.WHITE)) == 1 and
                     len(board.pieces(chess.KING, chess.BLACK)) == 1):
                 return True, fen
         except Exception:
             pass
-
-        # Attempt repair: inject kings at their home squares if missing
         try:
             board = chess.Board(fen)
         except Exception:
-            # FEN is completely broken — use starting position
             logger.warning("FEN completely invalid, using starting position.")
             return True, STARTING_FEN
-
-        # Add missing kings at their standard home squares
         if len(board.pieces(chess.KING, chess.WHITE)) == 0:
             board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
         if len(board.pieces(chess.KING, chess.BLACK)) == 0:
             board.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
-
-        # Remove extra kings if somehow there are multiples
         white_kings = list(board.pieces(chess.KING, chess.WHITE))
         while len(white_kings) > 1:
             board.remove_piece_at(white_kings.pop())
@@ -312,8 +247,6 @@ class BoardDetector:
 
         repaired_fen = f"{board.board_fen()} {turn} - - 0 1"
         logger.info(f"FEN repaired: {repaired_fen}")
-
-        # Final validation
         try:
             chess.Board(repaired_fen)
             return True, repaired_fen
@@ -328,9 +261,6 @@ class BoardDetector:
             cv2.line(annotated, (i*sq, 0), (i*sq, annotated.shape[0]), (160,160,160), 1)
             cv2.line(annotated, (0, i*sq), (annotated.shape[1], i*sq), (160,160,160), 1)
         return _cv2_to_b64(annotated)
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _err(msg: str, confidence: float = 0.0) -> dict:
     return {"fen": None, "turn": "w", "confidence": confidence,

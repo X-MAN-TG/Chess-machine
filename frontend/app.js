@@ -1,38 +1,19 @@
-/**
- * Chess Vision Coach — Frontend App
- *
- * Architecture:
- *  - Captures a frame from the camera every POLL_INTERVAL_MS.
- *  - Resizes it to MAX_CAPTURE_SIZE before encoding (saves bandwidth).
- *  - Sends base64-encoded JPEG to the backend /api/analyze endpoint.
- *  - Displays the recommended move in large, clear text.
- *  - Skips upload if the frame hash hasn't changed (duplicate frame guard).
- *
- * No external JS dependencies — vanilla JS only for minimal weight.
- */
 
-// ── Config ────────────────────────────────────────────────────────────────
 const API_BASE        = "https://chess-machine-production.up.railway.app";
-const POLL_INTERVAL   = 2500;   // ms between frame captures
-const MAX_CAPTURE_SIZE = 480;   // px — resize before upload
-const JPEG_QUALITY    = 0.82;   // 0-1, balance of size vs. clarity
+const POLL_INTERVAL   = 2500;
+const MAX_CAPTURE_SIZE = 480;
+const JPEG_QUALITY    = 0.82;
 const SESSION_ID      = "session_" + Math.random().toString(36).slice(2, 9);
-
-// ── Depth → Elo map (mirrors backend, used for instant UI updates) ─────────
 const DEPTH_ELO = {
   4:800, 5:1000, 6:1200, 7:1400, 8:1600, 9:1750,
   10:1900, 11:2000, 12:2100, 13:2200, 14:2300, 15:2400, 16:2600
 };
-
-// ── State ─────────────────────────────────────────────────────────────────
 let isRunning     = false;
 let pollTimer     = null;
 let lastFrameHash = null;
 let playerColor   = "w";
 let playMode      = "win";
 let depth         = 10;
-
-// ── DOM refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const cameraFeed     = $("cameraFeed");
 const captureCanvas  = $("captureCanvas");
@@ -53,8 +34,6 @@ const boardCard      = $("boardCard");
 const boardImg       = $("boardImg");
 const confBadge      = $("confBadge");
 const modeInfo       = $("modeInfo");
-
-// ── Boot ──────────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
   initToggleGroup("colorToggle", val => { playerColor = val; });
   initToggleGroup("modeToggle",  val => { playMode = val; updateModeInfo(); });
@@ -64,8 +43,6 @@ window.addEventListener("DOMContentLoaded", () => {
   checkBackendHealth();
   updateModeInfo();
 });
-
-// ── Toggle groups ─────────────────────────────────────────────────────────
 function initToggleGroup(groupId, onChange) {
   const group = $(groupId);
   group.querySelectorAll(".toggle-btn").forEach(btn => {
@@ -76,19 +53,13 @@ function initToggleGroup(groupId, onChange) {
     });
   });
 }
-
-// ── Depth slider ──────────────────────────────────────────────────────────
 function onDepthChange() {
   depth = parseInt(this.value);
   depthVal.textContent = depth;
   eloHint.textContent  = `≈ ${DEPTH_ELO[depth] ?? "?"} Elo*`;
 }
-
-// ── Start / Stop ──────────────────────────────────────────────────────────
 async function startAnalysis() {
   if (isRunning) return;
-
-  // Request camera access
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -100,11 +71,9 @@ async function startAnalysis() {
     setStatus(`Camera error: ${err.message}`, "error");
     return;
   }
-
-  // Reset session cache on backend
   try {
     await fetch(`${API_BASE}/api/reset-session?session_id=${SESSION_ID}`, { method: "POST" });
-  } catch (_) { /* non-fatal */ }
+  } catch (_) {  }
 
   isRunning = true;
   lastFrameHash = null;
@@ -114,7 +83,7 @@ async function startAnalysis() {
   showWaiting();
 
   pollTimer = setInterval(captureAndAnalyze, POLL_INTERVAL);
-  captureAndAnalyze(); // immediate first capture
+  captureAndAnalyze();
 }
 
 function stopAnalysis() {
@@ -122,8 +91,6 @@ function stopAnalysis() {
   isRunning = false;
   clearInterval(pollTimer);
   pollTimer = null;
-
-  // Stop camera stream
   const stream = cameraFeed.srcObject;
   if (stream) stream.getTracks().forEach(t => t.stop());
   cameraFeed.srcObject = null;
@@ -133,15 +100,11 @@ function stopAnalysis() {
   btnStop.disabled  = true;
   setStatus("Analysis stopped.", "");
 }
-
-// ── Frame capture & analysis ──────────────────────────────────────────────
 async function captureAndAnalyze() {
   if (!isRunning) return;
-
-  // Draw camera frame to canvas at reduced size
   const vw = cameraFeed.videoWidth;
   const vh = cameraFeed.videoHeight;
-  if (!vw || !vh) return; // camera not ready yet
+  if (!vw || !vh) return;
 
   const scale = Math.min(MAX_CAPTURE_SIZE / vw, MAX_CAPTURE_SIZE / vh, 1);
   const cw = Math.round(vw * scale);
@@ -153,14 +116,10 @@ async function captureAndAnalyze() {
   ctx.drawImage(cameraFeed, 0, 0, cw, ch);
 
   const imageB64Full = captureCanvas.toDataURL("image/jpeg", JPEG_QUALITY);
-  const imageB64     = imageB64Full.split(",")[1]; // strip data:image/jpeg;base64,
-
-  // Duplicate frame guard — skip if visually identical
-  const frameHash = await quickHash(imageB64.slice(0, 2000)); // hash first 2KB
+  const imageB64     = imageB64Full.split(",")[1];
+  const frameHash = await quickHash(imageB64.slice(0, 2000));
   if (frameHash === lastFrameHash) return;
   lastFrameHash = frameHash;
-
-  // Send to backend
   try {
     const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
@@ -186,8 +145,6 @@ async function captureAndAnalyze() {
     setStatus(`Network error: ${err.message}`, "error");
   }
 }
-
-// ── Response handler ──────────────────────────────────────────────────────
 function handleResponse(data) {
   switch (data.status) {
 
@@ -211,7 +168,6 @@ function handleResponse(data) {
       break;
 
     case "engine_error":
-      // Engine restarted on backend — next poll will retry automatically
       setStatus("⚙ Engine restarting… retrying.", "");
       break;
 
@@ -228,14 +184,11 @@ function handleResponse(data) {
       setStatus(data.message ?? "Unknown response.", "");
   }
 }
-
-// ── UI helpers ────────────────────────────────────────────────────────────
 function showMove(humanText, san) {
   moveWaiting.style.display = "none";
   moveResult.style.display  = "block";
   moveText.textContent = humanText ?? "—";
   moveSan.textContent  = san ?? "";
-  // Re-trigger animation
   moveResult.classList.remove("move-anim");
   void moveResult.offsetWidth;
   moveResult.classList.add("move-anim");
@@ -283,8 +236,6 @@ function updateModeInfo() {
       <p>${m.desc}</p>
     </div>`;
 }
-
-// ── Health check ──────────────────────────────────────────────────────────
 async function checkBackendHealth() {
   try {
     const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
@@ -302,10 +253,8 @@ function setEngineStatus(cls, label) {
   engineStatus.className = `status-pill ${cls}`;
   engineStatus.querySelector(".status-label").textContent = label;
 }
-
-// ── Utility: quick hash of a string ──────────────────────────────────────
 async function quickHash(str) {
-  if (!crypto?.subtle) return str.slice(0, 64); // fallback
+  if (!crypto?.subtle) return str.slice(0, 64);
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }

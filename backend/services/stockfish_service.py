@@ -1,10 +1,3 @@
-"""
-StockfishService — persistent Stockfish wrapper with auto-recovery.
-
-Key fix: engine restarts automatically if it crashes (bad FEN, timeout, etc.)
-so one invalid position never permanently kills the service.
-"""
-
 import os
 import shutil
 import threading
@@ -22,12 +15,11 @@ DEPTH_ELO_MAP = {
 
 _CANDIDATES = [
     os.getenv("STOCKFISH_PATH", ""),
-    "/usr/games/stockfish",       # Debian apt (NOT in $PATH by default)
+    "/usr/games/stockfish",
     "/usr/bin/stockfish",
     "/usr/local/bin/stockfish",
     "/opt/homebrew/bin/stockfish",
 ]
-
 
 def _resolve_path() -> str:
     for p in _CANDIDATES:
@@ -41,23 +33,13 @@ def _resolve_path() -> str:
         "Stockfish not found. apt install stockfish  OR  set STOCKFISH_PATH env var."
     )
 
-
-# ── FEN validation ────────────────────────────────────────────────────────────
-
 def validate_fen(fen: str) -> tuple[bool, str]:
-    """
-    Validate a FEN string before sending to Stockfish.
-    Returns (is_valid, error_message).
-    Stockfish crashes hard on illegal FENs — we must catch them here.
-    """
     try:
         board = chess.Board(fen)
-        # Must have exactly one king per side
         if len(board.pieces(chess.KING, chess.WHITE)) != 1:
             return False, "FEN has no white king — board detection failed."
         if len(board.pieces(chess.KING, chess.BLACK)) != 1:
             return False, "FEN has no black king — board detection failed."
-        # Must have at least one piece per side
         if not board.pieces(chess.PAWN, chess.WHITE) and \
            not board.pieces(chess.QUEEN, chess.WHITE) and \
            not board.pieces(chess.ROOK, chess.WHITE):
@@ -65,9 +47,6 @@ def validate_fen(fen: str) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         return False, f"Invalid FEN: {e}"
-
-
-# ── Service ───────────────────────────────────────────────────────────────────
 
 class StockfishService:
     def __init__(self):
@@ -80,14 +59,13 @@ class StockfishService:
         self._spawn()
 
     def _spawn(self):
-        """Start (or restart) the Stockfish process."""
         try:
             self._engine = Stockfish(
                 path=self._path,
                 depth=10,
                 parameters={
-                    "Threads": 1,           # safer on Railway — prevents race conditions
-                    "Hash": 32,             # MB — conservative for free tier
+                    "Threads": 1,
+                    "Hash": 32,
                     "Minimum Thinking Time": 0,
                 },
             )
@@ -103,12 +81,9 @@ class StockfishService:
 
     def get_best_move(self, fen: str, depth: int = 10, mode: str = "win") -> dict:
         with self._lock:
-            # Validate FEN BEFORE touching Stockfish — bad FEN = crash
             ok, err = validate_fen(fen)
             if not ok:
                 raise ValueError(err)
-
-            # Auto-recover if engine died on a previous request
             if self._engine is None:
                 logger.warning("Stockfish was down — restarting.")
                 self._spawn()
@@ -121,7 +96,6 @@ class StockfishService:
                 self._engine.set_fen_position(fen)
                 uci = self._engine.get_best_move()
             except Exception as e:
-                # Engine crashed mid-request — restart for next call
                 logger.error(f"Stockfish crashed: {e} — restarting engine.")
                 self._engine = None
                 try:
@@ -140,7 +114,6 @@ class StockfishService:
             return {"uci": uci, "san": san, "human": human, "elo": DEPTH_ELO_MAP.get(depth, 1900)}
 
     def _weaken(self, best_uci: str) -> str:
-        """Loss mode: 40% chance of picking the 2nd-best move (max 200cp worse)."""
         import random
         if random.random() > 0.40:
             return best_uci
